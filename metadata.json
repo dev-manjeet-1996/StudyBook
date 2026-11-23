@@ -1,0 +1,6 @@
+{
+  "name": "StudyBook",
+  "description": "Cross-platform Progressive Web App for SSC JE & RRB JE Civil and Mechanical Engineering aspirants with syllabus tracking, spaced repetition, TCS iON CBT mock simulator, AI answer key extractor, and visual notes studio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

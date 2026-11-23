@@ -1,0 +1,304 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable hardened global helpers
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function parentProfileExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // Entity validation blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+        'ownerId', 'aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && data.aspirantName is string && data.aspirantName.size() >= 1 && data.aspirantName.size() <= 80
+      && data.branch in ['civil', 'mechanical']
+      && data.targetExam in ['combo', 'ssc_je', 'rrb_je']
+      && data.theme in ['day', 'night']
+      && data.font in ['jakarta', 'manrope', 'dm']
+      && data.glassBlur is bool
+      && data.dailyGoals is list && data.dailyGoals.size() <= 25
+      && (data.dailyGoals.size() == 0 || data.dailyGoals[0] is map)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChapterProgress(data) {
+      return data.keys().hasAll([
+        'ownerId', 'chapterId', 'subjectId', 'branch', 'status', 'remarks', 'revisionStage', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'chapterId', 'subjectId', 'branch', 'status', 'remarks', 'revisionStage', 'nextRevisionDate', 'lastStudiedDate', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && isValidId(data.chapterId)
+      && data.subjectId is string && data.subjectId.size() >= 1 && data.subjectId.size() <= 128
+      && data.branch in ['civil', 'mechanical', 'nontech']
+      && data.status in ['not_started', 'revising', 'mastered']
+      && data.remarks is string && data.remarks.size() <= 500
+      && data.revisionStage is int && data.revisionStage >= 0 && data.revisionStage <= 4
+      && (!('nextRevisionDate' in data) || (data.nextRevisionDate is string && data.nextRevisionDate.size() <= 40))
+      && (!('lastStudiedDate' in data) || (data.lastStudiedDate is string && data.lastStudiedDate.size() <= 40))
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidStudyLog(data) {
+      return data.keys().hasAll([
+        'ownerId', 'subjectId', 'subjectName', 'topic', 'activityType', 'durationMinutes', 'pyqsSolved', 'confidence', 'takeaways', 'branch', 'loggedDate', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'subjectId', 'subjectName', 'topic', 'chapterId', 'activityType', 'durationMinutes', 'pyqsSolved', 'confidence', 'takeaways', 'branch', 'loggedDate', 'createdAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && data.subjectId is string && data.subjectId.size() >= 1 && data.subjectId.size() <= 128
+      && data.subjectName is string && data.subjectName.size() >= 1 && data.subjectName.size() <= 120
+      && data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 200
+      && (!('chapterId' in data) || (data.chapterId is string && data.chapterId.size() <= 128))
+      && data.activityType in ['Concept Study', 'PYQ Practice', 'Revision', 'Mock Analysis', 'Formula Drill']
+      && data.durationMinutes is int && data.durationMinutes >= 1 && data.durationMinutes <= 1440
+      && data.pyqsSolved is int && data.pyqsSolved >= 0 && data.pyqsSolved <= 2000
+      && data.confidence is int && data.confidence >= 1 && data.confidence <= 5
+      && data.takeaways is string && data.takeaways.size() <= 1000
+      && data.branch in ['civil', 'mechanical']
+      && data.loggedDate is string && data.loggedDate.size() >= 8 && data.loggedDate.size() <= 40
+      && data.createdAt is timestamp;
+    }
+
+    function isValidMockScore(data) {
+      return data.keys().hasAll([
+        'ownerId', 'title', 'examType', 'branch', 'score', 'maxScore', 'accuracy', 'correctCount', 'wrongCount', 'skippedCount', 'timeTakenMinutes', 'date', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'title', 'examType', 'branch', 'score', 'maxScore', 'accuracy', 'correctCount', 'wrongCount', 'skippedCount', 'timeTakenMinutes', 'date', 'createdAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+      && data.examType in ['ssc_je', 'rrb_je']
+      && data.branch in ['civil', 'mechanical']
+      && data.score is number && data.score >= -500 && data.score <= 2000
+      && data.maxScore is number && data.maxScore > 0 && data.maxScore <= 2000
+      && data.accuracy is number && data.accuracy >= 0 && data.accuracy <= 100
+      && data.correctCount is int && data.correctCount >= 0 && data.correctCount <= 2000
+      && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 2000
+      && data.skippedCount is int && data.skippedCount >= 0 && data.skippedCount <= 2000
+      && data.timeTakenMinutes is int && data.timeTakenMinutes >= 0 && data.timeTakenMinutes <= 600
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 40
+      && data.createdAt is timestamp;
+    }
+
+    function isValidQuestionItem(data) {
+      return data.keys().hasAll([
+        'ownerId', 'subject', 'topic', 'examType', 'branch', 'questionText', 'options', 'correctIndex', 'explanation', 'sourceName', 'isMistake', 'wrongCount', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'subject', 'topic', 'examType', 'branch', 'questionText', 'options', 'correctIndex', 'explanation', 'sourceName', 'isMistake', 'lastWrongChoice', 'wrongCount', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 120
+      && data.topic is string && data.topic.size() <= 160
+      && data.examType in ['ssc_je', 'rrb_je']
+      && data.branch in ['civil', 'mechanical', 'nontech']
+      && data.questionText is string && data.questionText.size() >= 1 && data.questionText.size() <= 1500
+      && data.options is list && data.options.size() == 4
+      && data.options[0] is string && data.options[0].size() <= 500
+      && data.options[1] is string && data.options[1].size() <= 500
+      && data.options[2] is string && data.options[2].size() <= 500
+      && data.options[3] is string && data.options[3].size() <= 500
+      && data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3
+      && data.explanation is string && data.explanation.size() <= 2000
+      && data.sourceName is string && data.sourceName.size() <= 160
+      && data.isMistake is bool
+      && (!('lastWrongChoice' in data) || (data.lastWrongChoice is int && data.lastWrongChoice >= -1 && data.lastWrongChoice <= 3))
+      && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 1000
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChapterNote(data) {
+      return data.keys().hasAll([
+        'ownerId', 'subjectId', 'chapterId', 'chapterTitle', 'branch', 'tldr', 'plainNotes', 'conceptCards', 'diagrams', 'comparisonTables', 'qaHistory', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'subjectId', 'chapterId', 'chapterTitle', 'branch', 'tldr', 'plainNotes', 'conceptCards', 'diagrams', 'comparisonTables', 'qaHistory', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.ownerId)
+      && data.ownerId == request.auth.uid
+      && data.subjectId is string && data.subjectId.size() >= 1 && data.subjectId.size() <= 128
+      && isValidId(data.chapterId)
+      && data.chapterTitle is string && data.chapterTitle.size() >= 1 && data.chapterTitle.size() <= 200
+      && data.branch in ['civil', 'mechanical', 'nontech']
+      && data.tldr is string && data.tldr.size() <= 2000
+      && data.plainNotes is string && data.plainNotes.size() <= 20000
+      && data.conceptCards is list && data.conceptCards.size() <= 30
+      && (data.conceptCards.size() == 0 || data.conceptCards[0] is map)
+      && data.diagrams is list && data.diagrams.size() <= 12
+      && (data.diagrams.size() == 0 || data.diagrams[0] is map)
+      && data.comparisonTables is list && data.comparisonTables.size() <= 10
+      && (data.comparisonTables.size() == 0 || data.comparisonTables[0] is map)
+      && data.qaHistory is list && data.qaHistory.size() <= 40
+      && (data.qaHistory.size() == 0 || data.qaHistory[0] is map)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    // 1. User Profile (PII & Preferences isolated strictly to owner)
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'updatedAt'])
+        );
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // 2. Syllabus Progress & Spaced Repetition
+      match /syllabusProgress/{chapterId} {
+        allow get: if isOwner(userId) && isValidId(chapterId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(chapterId)
+          && isValidChapterProgress(incoming())
+          && incoming().chapterId == chapterId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId);
+        allow update: if isOwner(userId)
+          && isValidId(chapterId)
+          && isValidChapterProgress(incoming())
+          && incoming().ownerId == existing().ownerId
+          && incoming().chapterId == existing().chapterId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId)
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'remarks', 'revisionStage', 'nextRevisionDate', 'lastStudiedDate', 'updatedAt'])
+          );
+        allow delete: if isOwner(userId) && isValidId(chapterId);
+      }
+
+      // 3. Daily Study Logs
+      match /studyLogs/{logId} {
+        allow get: if isOwner(userId) && isValidId(logId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && isValidStudyLog(incoming())
+          && incoming().createdAt == request.time
+          && parentProfileExists(userId);
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(logId);
+      }
+
+      // 4. Mock Test Scores
+      match /mockScores/{scoreId} {
+        allow get: if isOwner(userId) && isValidId(scoreId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(scoreId)
+          && isValidMockScore(incoming())
+          && incoming().createdAt == request.time
+          && parentProfileExists(userId);
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(scoreId);
+      }
+
+      // 5. Question Bank & Mistake Book
+      match /questionBank/{questionId} {
+        allow get: if isOwner(userId) && isValidId(questionId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(questionId)
+          && isValidQuestionItem(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId);
+        allow update: if isOwner(userId)
+          && isValidId(questionId)
+          && isValidQuestionItem(incoming())
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId)
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['isMistake', 'lastWrongChoice', 'wrongCount', 'updatedAt'])
+            ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['subject', 'topic', 'examType', 'branch', 'questionText', 'options', 'correctIndex', 'explanation', 'updatedAt'])
+          );
+        allow delete: if isOwner(userId) && isValidId(questionId);
+      }
+
+      // 6. Chapter Visual Notes & SVG Diagrams
+      match /chapterNotes/{noteId} {
+        allow get: if isOwner(userId) && isValidId(noteId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(noteId)
+          && isValidChapterNote(incoming())
+          && incoming().chapterId == noteId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId);
+        allow update: if isOwner(userId)
+          && isValidId(noteId)
+          && isValidChapterNote(incoming())
+          && incoming().ownerId == existing().ownerId
+          && incoming().chapterId == existing().chapterId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && parentProfileExists(userId)
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['plainNotes', 'qaHistory', 'updatedAt'])
+            ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['tldr', 'plainNotes', 'conceptCards', 'diagrams', 'comparisonTables', 'qaHistory', 'updatedAt'])
+          );
+        allow delete: if isOwner(userId) && isValidId(noteId);
+      }
+    }
+  }
+}

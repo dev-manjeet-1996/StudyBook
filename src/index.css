@@ -1,0 +1,140 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans-active: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono-active: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html[data-font="jakarta"] {
+    --font-sans-active: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  html[data-font="manrope"] {
+    --font-sans-active: "Manrope", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  html[data-font="dm"] {
+    --font-sans-active: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans-active);
+    background-color: #f5f5f7;
+    color: #111113;
+    overflow-x: hidden;
+  }
+
+  html.dark body {
+    background-color: #0a0a0c;
+    color: #f5f5f7;
+    letter-spacing: 0.006em;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono-active);
+  }
+}
+
+/* Monochrome Frosted Glassmorphism Surface System */
+.sb-surface {
+  background-color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(17, 17, 19, 0.08);
+  box-shadow: 0 1px 2px rgba(17, 17, 19, 0.04), 0 8px 24px -12px rgba(17, 17, 19, 0.06);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+}
+
+html.dark .sb-surface {
+  background-color: rgba(24, 24, 27, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 30px -12px rgba(0, 0, 0, 0.55);
+}
+
+html[data-blur="off"] .sb-surface,
+html[data-blur="off"] .sb-glass-bar,
+html[data-blur="off"] .sb-dock {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-blur="off"] .sb-surface {
+  background-color: #ffffff;
+}
+
+html.dark[data-blur="off"] .sb-surface {
+  background-color: #141417;
+}
+
+.sb-glass-bar {
+  background-color: rgba(245, 245, 247, 0.82);
+  border-bottom: 1px solid rgba(17, 17, 19, 0.07);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+html.dark .sb-glass-bar {
+  background-color: rgba(10, 10, 12, 0.82);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html[data-blur="off"] .sb-glass-bar {
+  background-color: #f5f5f7;
+}
+
+html.dark[data-blur="off"] .sb-glass-bar {
+  background-color: #0a0a0c;
+}
+
+.sb-dock {
+  background-color: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(17, 17, 19, 0.1);
+  box-shadow: 0 12px 36px -8px rgba(17, 17, 19, 0.18), 0 2px 6px rgba(17, 17, 19, 0.06);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+
+html.dark .sb-dock {
+  background-color: rgba(24, 24, 27, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 40px -8px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+html[data-blur="off"] .sb-dock {
+  background-color: #ffffff;
+}
+
+html.dark[data-blur="off"] .sb-dock {
+  background-color: #18181b;
+}
+
+/* Subtle architectural ambient backdrop */
+.sb-canvas-bg {
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(17, 17, 19, 0.04) 0%, transparent 42%),
+    radial-gradient(circle at 88% 18%, rgba(17, 17, 19, 0.03) 0%, transparent 40%);
+}
+
+html.dark .sb-canvas-bg {
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.035) 0%, transparent 42%),
+    radial-gradient(circle at 88% 18%, rgba(255, 255, 255, 0.025) 0%, transparent 40%);
+}
+
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

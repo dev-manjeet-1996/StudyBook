@@ -1,0 +1,390 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Aspirant preferences, identity, and daily targets synced across devices.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "aspirantName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical"]
+        },
+        "targetExam": {
+          "type": "string",
+          "enum": ["combo", "ssc_je", "rrb_je"]
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["day", "night"]
+        },
+        "font": {
+          "type": "string",
+          "enum": ["jakarta", "manrope", "dm"]
+        },
+        "glassBlur": {
+          "type": "boolean"
+        },
+        "dailyGoals": {
+          "type": "array",
+          "description": "Bounded list of up to 25 daily checklist goal objects."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "aspirantName", "branch", "targetExam", "theme", "font", "glassBlur", "dailyGoals", "createdAt", "updatedAt"]
+    },
+    "ChapterProgress": {
+      "title": "ChapterProgress",
+      "description": "Per-chapter syllabus mastery status, remarks, and 3-7-21 spaced repetition schedule.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "chapterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical", "nontech"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["not_started", "revising", "mastered"]
+        },
+        "remarks": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "revisionStage": {
+          "type": "integer"
+        },
+        "nextRevisionDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "lastStudiedDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "chapterId", "subjectId", "branch", "status", "remarks", "revisionStage", "createdAt", "updatedAt"]
+    },
+    "StudyLog": {
+      "title": "StudyLog",
+      "description": "Individual study session log entry.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "subjectName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "chapterId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "activityType": {
+          "type": "string",
+          "enum": ["Concept Study", "PYQ Practice", "Revision", "Mock Analysis", "Formula Drill"]
+        },
+        "durationMinutes": {
+          "type": "integer"
+        },
+        "pyqsSolved": {
+          "type": "integer"
+        },
+        "confidence": {
+          "type": "integer"
+        },
+        "takeaways": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical"]
+        },
+        "loggedDate": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "subjectId", "subjectName", "topic", "activityType", "durationMinutes", "pyqsSolved", "confidence", "takeaways", "branch", "loggedDate", "createdAt"]
+    },
+    "MockScore": {
+      "title": "MockScore",
+      "description": "Completed CBT or manually logged mock test record.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "examType": {
+          "type": "string",
+          "enum": ["ssc_je", "rrb_je"]
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical"]
+        },
+        "score": {
+          "type": "number"
+        },
+        "maxScore": {
+          "type": "number"
+        },
+        "accuracy": {
+          "type": "number"
+        },
+        "correctCount": {
+          "type": "integer"
+        },
+        "wrongCount": {
+          "type": "integer"
+        },
+        "skippedCount": {
+          "type": "integer"
+        },
+        "timeTakenMinutes": {
+          "type": "integer"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "title", "examType", "branch", "score", "maxScore", "accuracy", "correctCount", "wrongCount", "skippedCount", "timeTakenMinutes", "date", "createdAt"]
+    },
+    "QuestionItem": {
+      "title": "QuestionItem",
+      "description": "Extracted or seeded MCQ in the personal Question Bank and Mistake Book.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "topic": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "examType": {
+          "type": "string",
+          "enum": ["ssc_je", "rrb_je"]
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical", "nontech"]
+        },
+        "questionText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "options": {
+          "type": "array",
+          "description": "Exactly 4 answer choice strings."
+        },
+        "correctIndex": {
+          "type": "integer"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "sourceName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "isMistake": {
+          "type": "boolean"
+        },
+        "lastWrongChoice": {
+          "type": "integer"
+        },
+        "wrongCount": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "subject", "topic", "examType", "branch", "questionText", "options", "correctIndex", "explanation", "sourceName", "isMistake", "wrongCount", "createdAt", "updatedAt"]
+    },
+    "ChapterNote": {
+      "title": "ChapterNote",
+      "description": "Visual notes, SVG diagrams, comparison tables, plain revision notes, and grounded Q&A for a chapter.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "chapterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "chapterTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "branch": {
+          "type": "string",
+          "enum": ["civil", "mechanical", "nontech"]
+        },
+        "tldr": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "plainNotes": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "conceptCards": {
+          "type": "array",
+          "description": "Up to 30 concept card objects."
+        },
+        "diagrams": {
+          "type": "array",
+          "description": "Up to 12 monochrome SVG diagram objects."
+        },
+        "comparisonTables": {
+          "type": "array",
+          "description": "Up to 10 structured comparison table objects."
+        },
+        "qaHistory": {
+          "type": "array",
+          "description": "Up to 40 grounded Q&A entries."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "subjectId", "chapterId", "chapterTitle", "branch", "tldr", "plainNotes", "conceptCards", "diagrams", "comparisonTables", "qaHistory", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile, settings, and daily target checklist."
+    },
+    "/users/{userId}/syllabusProgress/{chapterId}": {
+      "schema": { "$ref": "#/entities/ChapterProgress" },
+      "description": "Per-chapter mastery status, remarks, and spaced repetition stage."
+    },
+    "/users/{userId}/studyLogs/{logId}": {
+      "schema": { "$ref": "#/entities/StudyLog" },
+      "description": "Daily study session logs."
+    },
+    "/users/{userId}/mockScores/{scoreId}": {
+      "schema": { "$ref": "#/entities/MockScore" },
+      "description": "Mock test scores and accuracy analytics."
+    },
+    "/users/{userId}/questionBank/{questionId}": {
+      "schema": { "$ref": "#/entities/QuestionItem" },
+      "description": "Personal question bank and mistake book."
+    },
+    "/users/{userId}/chapterNotes/{noteId}": {
+      "schema": { "$ref": "#/entities/ChapterNote" },
+      "description": "Visual chapter notes, SVG diagrams, tables, and grounded Q&A."
+    }
+  }
+}

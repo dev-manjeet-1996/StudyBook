@@ -38,7 +38,7 @@ service cloud.firestore {
         'ownerId', 'aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'createdAt', 'updatedAt'
       ])
       && data.keys().hasOnly([
-        'ownerId', 'aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'createdAt', 'updatedAt'
+        'ownerId', 'aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'wallpaper', 'autoSync', 'dailyGoals', 'createdAt', 'updatedAt'
       ])
       && isValidId(data.ownerId)
       && data.ownerId == request.auth.uid
@@ -46,8 +46,10 @@ service cloud.firestore {
       && data.branch in ['civil', 'mechanical']
       && data.targetExam in ['combo', 'ssc_je', 'rrb_je']
       && data.theme in ['day', 'night']
-      && data.font in ['jakarta', 'manrope', 'dm']
+      && data.font in ['google_sans', 'play', 'jakarta', 'manrope', 'dm']
       && data.glassBlur is bool
+      && (!('wallpaper' in data) || data.wallpaper in ['waves', 'concrete', 'peaks', 'prism', 'none'])
+      && (!('autoSync' in data) || data.autoSync is bool)
       && data.dailyGoals is list && data.dailyGoals.size() <= 25
       && (data.dailyGoals.size() == 0 || data.dailyGoals[0] is map)
       && data.createdAt is timestamp
@@ -193,7 +195,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'dailyGoals', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['aspirantName', 'branch', 'targetExam', 'theme', 'font', 'glassBlur', 'wallpaper', 'autoSync', 'dailyGoals', 'updatedAt'])
         );
       allow delete: if isOwner(userId) && isValidId(userId);
 

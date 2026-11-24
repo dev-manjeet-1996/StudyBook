@@ -15,7 +15,6 @@ import {
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../lib/firebase';
 import { DEFAULT_DAILY_GOALS, SEED_NOTES, SEED_QUESTIONS } from '../data/syllabusData';
 import type {
-  Branch,
   ChapterNote,
   ChapterProgress,
   ChapterStatus,
@@ -26,20 +25,24 @@ import type {
   QuestionItem,
   StudyBookBackup,
   StudyLog,
-  TargetExam,
-  ThemeMode,
   UserProfile,
+  WallpaperId,
 } from '../types/studybook';
 
 const STORAGE_KEY = 'studybook_state_v1';
+
+const VALID_FONTS: FontFamily[] = ['google_sans', 'play', 'jakarta', 'manrope', 'dm'];
+const VALID_WALLPAPERS: WallpaperId[] = ['waves', 'concrete', 'peaks', 'prism', 'none'];
 
 const DEFAULT_PROFILE: UserProfile = {
   aspirantName: '',
   branch: 'civil',
   targetExam: 'combo',
   theme: 'day',
-  font: 'jakarta',
+  font: 'google_sans',
   glassBlur: true,
+  wallpaper: 'waves',
+  autoSync: true,
   dailyGoals: DEFAULT_DAILY_GOALS,
 };
 
@@ -67,6 +70,14 @@ export function makeSafeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${rand}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96);
 }
 
+function normalizeFont(value: unknown): FontFamily {
+  return VALID_FONTS.includes(value as FontFamily) ? (value as FontFamily) : 'google_sans';
+}
+
+function normalizeWallpaper(value: unknown): WallpaperId {
+  return VALID_WALLPAPERS.includes(value as WallpaperId) ? (value as WallpaperId) : 'waves';
+}
+
 function loadLocalState(): PersistedLocalState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -85,6 +96,10 @@ function loadLocalState(): PersistedLocalState {
       profile: {
         ...DEFAULT_PROFILE,
         ...(parsed.profile || {}),
+        font: normalizeFont(parsed.profile?.font),
+        wallpaper: normalizeWallpaper(parsed.profile?.wallpaper),
+        autoSync:
+          typeof parsed.profile?.autoSync === 'boolean' ? parsed.profile.autoSync : true,
         dailyGoals: Array.isArray(parsed.profile?.dailyGoals)
           ? parsed.profile.dailyGoals.slice(0, 25)
           : DEFAULT_DAILY_GOALS,
@@ -113,6 +128,10 @@ function loadLocalState(): PersistedLocalState {
   }
 }
 
+function nowTimeLabel(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 export function useStudyBookStore() {
   const initial = useRef<PersistedLocalState>(loadLocalState());
 
@@ -131,17 +150,54 @@ export function useStudyBookStore() {
   const [authReady, setAuthReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>('local');
   const [syncMessage, setSyncMessage] = useState<string>('');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>('');
 
   const profileCreatedInCloudRef = useRef<boolean>(false);
+  const autoSyncRef = useRef<boolean>(profile.autoSync);
+  const latestStateRef = useRef<PersistedLocalState>({
+    profile,
+    syllabusProgress,
+    studyLogs,
+    mockScores,
+    questionBank,
+    chapterNotes,
+  });
+
+  useEffect(() => {
+    autoSyncRef.current = profile.autoSync;
+    latestStateRef.current = {
+      profile,
+      syllabusProgress,
+      studyLogs,
+      mockScores,
+      questionBank,
+      chapterNotes,
+    };
+  }, [profile, syllabusProgress, studyLogs, mockScores, questionBank, chapterNotes]);
+
   const remoteDocIdsRef = useRef<{
     syllabus: Set<string>;
+    studyLogs: Set<string>;
+    mockScores: Set<string>;
     questions: Set<string>;
     notes: Set<string>;
   }>({
     syllabus: new Set(),
+    studyLogs: new Set(),
+    mockScores: new Set(),
     questions: new Set(),
     notes: new Set(),
   });
+
+  const markSynced = useCallback((msg = '') => {
+    setSyncStatus('synced');
+    setLastSyncedAt(nowTimeLabel());
+    if (msg) setSyncMessage(msg);
+  }, []);
+
+  const canAutoSyncNow = useCallback(() => {
+    return Boolean(auth.currentUser && profileCreatedInCloudRef.current && autoSyncRef.current);
+  }, []);
 
   // Persist locally on every change (offline-first)
   useEffect(() => {
@@ -172,7 +228,7 @@ export function useStudyBookStore() {
     root.setAttribute('data-blur', profile.glassBlur ? 'on' : 'off');
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (metaTheme) {
-      metaTheme.setAttribute('content', profile.theme === 'night' ? '#0A0A0C' : '#F5F5F7');
+      metaTheme.setAttribute('content', profile.theme === 'night' ? '#09090B' : '#F4F4F6');
     }
   }, [profile.theme, profile.font, profile.glassBlur]);
 
@@ -194,6 +250,8 @@ export function useStudyBookStore() {
           theme: currentProfile.theme,
           font: currentProfile.font,
           glassBlur: currentProfile.glassBlur,
+          wallpaper: currentProfile.wallpaper,
+          autoSync: currentProfile.autoSync,
           dailyGoals: currentProfile.dailyGoals.slice(0, 25),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -209,6 +267,161 @@ export function useStudyBookStore() {
     }
   }, []);
 
+  // Push all local state & un-synced entries up to Firestore
+  const pushAllToCloud = useCallback(async () => {
+    if (!auth.currentUser) return;
+    const uid = auth.currentUser.uid;
+    const snapshot = latestStateRef.current;
+    setSyncStatus('syncing');
+    const ok = await ensureCloudProfile(uid, snapshot.profile);
+    if (!ok) return;
+
+    try {
+      const ops: Promise<unknown>[] = [];
+
+      // 1. Profile
+      ops.push(
+        updateDoc(doc(db, 'users', uid), {
+          aspirantName:
+            (snapshot.profile.aspirantName || 'Aspirant').trim().slice(0, 80) || 'Aspirant',
+          branch: snapshot.profile.branch,
+          targetExam: snapshot.profile.targetExam,
+          theme: snapshot.profile.theme,
+          font: snapshot.profile.font,
+          glassBlur: snapshot.profile.glassBlur,
+          wallpaper: snapshot.profile.wallpaper,
+          autoSync: snapshot.profile.autoSync,
+          dailyGoals: snapshot.profile.dailyGoals.slice(0, 25),
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // 2. Syllabus progress
+      for (const prog of Object.values(snapshot.syllabusProgress)) {
+        const safeId = prog.chapterId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+        const docRef = doc(db, 'users', uid, 'syllabusProgress', safeId);
+        const base: Record<string, unknown> = {
+          status: prog.status,
+          remarks: prog.remarks.slice(0, 500),
+          revisionStage: Math.max(0, Math.min(4, prog.revisionStage)),
+          updatedAt: serverTimestamp(),
+        };
+        if (prog.nextRevisionDate) base.nextRevisionDate = prog.nextRevisionDate;
+        if (prog.lastStudiedDate) base.lastStudiedDate = prog.lastStudiedDate;
+
+        if (remoteDocIdsRef.current.syllabus.has(safeId)) {
+          ops.push(updateDoc(docRef, base));
+        } else {
+          remoteDocIdsRef.current.syllabus.add(safeId);
+          ops.push(
+            setDoc(docRef, {
+              ownerId: uid,
+              chapterId: safeId,
+              subjectId: prog.subjectId.slice(0, 128),
+              branch: prog.branch,
+              ...base,
+              createdAt: serverTimestamp(),
+            }),
+          );
+        }
+      }
+
+      // 3. Study logs (create any not yet in remote)
+      for (const log of snapshot.studyLogs.slice(0, 60)) {
+        const safeId = log.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+        if (!remoteDocIdsRef.current.studyLogs.has(safeId)) {
+          remoteDocIdsRef.current.studyLogs.add(safeId);
+          const payload: Record<string, unknown> = {
+            ownerId: uid,
+            subjectId: log.subjectId.slice(0, 128),
+            subjectName: log.subjectName.slice(0, 120),
+            topic: log.topic.slice(0, 200),
+            activityType: log.activityType,
+            durationMinutes: Math.max(1, Math.min(1440, Math.round(log.durationMinutes))),
+            pyqsSolved: Math.max(0, Math.min(2000, Math.round(log.pyqsSolved))),
+            confidence: Math.max(1, Math.min(5, Math.round(log.confidence))),
+            takeaways: log.takeaways.slice(0, 1000),
+            branch: log.branch,
+            loggedDate: log.loggedDate,
+            createdAt: serverTimestamp(),
+          };
+          if (log.chapterId) payload.chapterId = log.chapterId.slice(0, 128);
+          ops.push(setDoc(doc(db, 'users', uid, 'studyLogs', safeId), payload));
+        }
+      }
+
+      // 4. Mock scores (create any not yet in remote)
+      for (const score of snapshot.mockScores.slice(0, 60)) {
+        const safeId = score.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+        if (!remoteDocIdsRef.current.mockScores.has(safeId)) {
+          remoteDocIdsRef.current.mockScores.add(safeId);
+          ops.push(
+            setDoc(doc(db, 'users', uid, 'mockScores', safeId), {
+              ownerId: uid,
+              title: score.title.slice(0, 160),
+              examType: score.examType,
+              branch: score.branch,
+              score: score.score,
+              maxScore: score.maxScore,
+              accuracy: score.accuracy,
+              correctCount: score.correctCount,
+              wrongCount: score.wrongCount,
+              skippedCount: score.skippedCount,
+              timeTakenMinutes: score.timeTakenMinutes,
+              date: score.date,
+              createdAt: serverTimestamp(),
+            }),
+          );
+        }
+      }
+
+      // 5. Chapter notes
+      for (const note of Object.values(snapshot.chapterNotes)) {
+        const safeId = note.chapterId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+        const docRef = doc(db, 'users', uid, 'chapterNotes', safeId);
+        if (remoteDocIdsRef.current.notes.has(safeId)) {
+          ops.push(
+            updateDoc(docRef, {
+              tldr: note.tldr.slice(0, 2000),
+              plainNotes: note.plainNotes.slice(0, 20000),
+              conceptCards: note.conceptCards.slice(0, 30),
+              diagrams: note.diagrams.slice(0, 12),
+              comparisonTables: note.comparisonTables.slice(0, 10),
+              qaHistory: note.qaHistory.slice(0, 40),
+              updatedAt: serverTimestamp(),
+            }),
+          );
+        } else {
+          remoteDocIdsRef.current.notes.add(safeId);
+          ops.push(
+            setDoc(docRef, {
+              ownerId: uid,
+              subjectId: note.subjectId.slice(0, 128),
+              chapterId: safeId,
+              chapterTitle: note.chapterTitle.slice(0, 200),
+              branch: note.branch,
+              tldr: note.tldr.slice(0, 2000),
+              plainNotes: note.plainNotes.slice(0, 20000),
+              conceptCards: note.conceptCards.slice(0, 30),
+              diagrams: note.diagrams.slice(0, 12),
+              comparisonTables: note.comparisonTables.slice(0, 10),
+              qaHistory: note.qaHistory.slice(0, 40),
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }),
+          );
+        }
+      }
+
+      await Promise.allSettled(ops);
+      markSynced('All entries synced to cloud.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+      setSyncStatus('error');
+      setSyncMessage('Sync failed. Try again.');
+    }
+  }, [ensureCloudProfile, markSynced]);
+
   // Auth listener & Firestore real-time synchronization
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
@@ -218,6 +431,7 @@ export function useStudyBookStore() {
         profileCreatedInCloudRef.current = false;
         setSyncStatus('local');
         setSyncMessage('');
+        setLastSyncedAt('');
       }
     });
     return () => unsubAuth();
@@ -231,7 +445,7 @@ export function useStudyBookStore() {
 
     const startCloudSync = async () => {
       setSyncStatus('syncing');
-      const ok = await ensureCloudProfile(uid, profile);
+      const ok = await ensureCloudProfile(uid, latestStateRef.current.profile);
       if (!ok || cancelled) return;
 
       // 1. Profile real-time listener
@@ -252,15 +466,17 @@ export function useStudyBookStore() {
                     ? data.targetExam
                     : 'combo',
                 theme: data.theme === 'night' ? 'night' : 'day',
-                font:
-                  data.font === 'manrope' || data.font === 'dm' ? data.font : 'jakarta',
+                font: normalizeFont(data.font),
                 glassBlur: typeof data.glassBlur === 'boolean' ? data.glassBlur : true,
+                wallpaper:
+                  data.wallpaper !== undefined ? normalizeWallpaper(data.wallpaper) : prev.wallpaper,
+                autoSync:
+                  typeof data.autoSync === 'boolean' ? data.autoSync : prev.autoSync,
                 dailyGoals: Array.isArray(data.dailyGoals)
                   ? (data.dailyGoals as DailyGoal[]).slice(0, 25)
                   : prev.dailyGoals,
               }));
-              setSyncStatus('synced');
-              setSyncMessage('');
+              markSynced();
             }
           },
           (err) => {
@@ -310,9 +526,10 @@ export function useStudyBookStore() {
         onSnapshot(
           query(collection(db, logsPath), where('ownerId', '==', uid)),
           (snap) => {
-            if (snap.size === 0) return;
+            const ids = new Set<string>();
             const list: StudyLog[] = [];
             snap.forEach((d) => {
+              ids.add(d.id);
               const v = d.data();
               list.push({
                 id: d.id,
@@ -329,8 +546,11 @@ export function useStudyBookStore() {
                 loggedDate: String(v.loggedDate || todayIso()),
               });
             });
-            list.sort((a, b) => b.loggedDate.localeCompare(a.loggedDate));
-            setStudyLogs(list);
+            remoteDocIdsRef.current.studyLogs = ids;
+            if (list.length > 0) {
+              list.sort((a, b) => b.loggedDate.localeCompare(a.loggedDate));
+              setStudyLogs(list);
+            }
           },
           (err) => {
             handleFirestoreError(err, OperationType.LIST, logsPath);
@@ -344,9 +564,10 @@ export function useStudyBookStore() {
         onSnapshot(
           query(collection(db, mocksPath), where('ownerId', '==', uid)),
           (snap) => {
-            if (snap.size === 0) return;
+            const ids = new Set<string>();
             const list: MockScore[] = [];
             snap.forEach((d) => {
+              ids.add(d.id);
               const v = d.data();
               list.push({
                 id: d.id,
@@ -363,8 +584,11 @@ export function useStudyBookStore() {
                 date: String(v.date || todayIso()),
               });
             });
-            list.sort((a, b) => b.date.localeCompare(a.date));
-            setMockScores(list);
+            remoteDocIdsRef.current.mockScores = ids;
+            if (list.length > 0) {
+              list.sort((a, b) => b.date.localeCompare(a.date));
+              setMockScores(list);
+            }
           },
           (err) => {
             handleFirestoreError(err, OperationType.LIST, mocksPath);
@@ -451,6 +675,13 @@ export function useStudyBookStore() {
           },
         ),
       );
+
+      // If autoSync is ON, immediately push any offline local entries created before sign-in
+      if (autoSyncRef.current) {
+        setTimeout(() => {
+          if (!cancelled) void pushAllToCloud();
+        }, 700);
+      }
     };
 
     void startCloudSync();
@@ -484,15 +715,19 @@ export function useStudyBookStore() {
     await signOut(auth);
     setSyncStatus('local');
     setSyncMessage('');
+    setLastSyncedAt('');
   }, []);
 
   // Profile mutations
   const updateProfile = useCallback(
     (patch: Partial<UserProfile>) => {
+      const turningAutoSyncOn = patch.autoSync === true && !autoSyncRef.current;
       setProfile((prev) => {
+        const isBranchLocked = Boolean(prev.aspirantName.trim());
         const next: UserProfile = {
           ...prev,
           ...patch,
+          branch: isBranchLocked ? prev.branch : (patch.branch ?? prev.branch),
           aspirantName:
             patch.aspirantName !== undefined
               ? patch.aspirantName.slice(0, 80)
@@ -502,10 +737,15 @@ export function useStudyBookStore() {
               ? patch.dailyGoals.slice(0, 25)
               : prev.dailyGoals,
         };
-        if (auth.currentUser && profileCreatedInCloudRef.current) {
+        const shouldSyncProfile =
+          Boolean(auth.currentUser && profileCreatedInCloudRef.current) &&
+          (next.autoSync || patch.autoSync !== undefined);
+
+        if (shouldSyncProfile && auth.currentUser) {
           const uid = auth.currentUser.uid;
           const path = `users/${uid}`;
           const safeName = (next.aspirantName || 'Aspirant').trim().slice(0, 80) || 'Aspirant';
+          setSyncStatus('syncing');
           void updateDoc(doc(db, 'users', uid), {
             aspirantName: safeName,
             branch: next.branch,
@@ -513,14 +753,24 @@ export function useStudyBookStore() {
             theme: next.theme,
             font: next.font,
             glassBlur: next.glassBlur,
+            wallpaper: next.wallpaper,
+            autoSync: next.autoSync,
             dailyGoals: next.dailyGoals.slice(0, 25),
             updatedAt: serverTimestamp(),
-          }).catch((err) => handleFirestoreError(err, OperationType.UPDATE, path));
+          })
+            .then(() => markSynced())
+            .catch((err) => handleFirestoreError(err, OperationType.UPDATE, path));
         }
         return next;
       });
+
+      if (turningAutoSyncOn && auth.currentUser) {
+        setTimeout(() => {
+          void pushAllToCloud();
+        }, 120);
+      }
     },
-    [],
+    [markSynced, pushAllToCloud],
   );
 
   // Daily goals helpers
@@ -559,7 +809,9 @@ export function useStudyBookStore() {
       chapterId: string,
       subjectId: string,
       branch: ContentBranch,
-      updates: Partial<Pick<ChapterProgress, 'status' | 'remarks' | 'revisionStage' | 'nextRevisionDate' | 'lastStudiedDate'>>,
+      updates: Partial<
+        Pick<ChapterProgress, 'status' | 'remarks' | 'revisionStage' | 'nextRevisionDate' | 'lastStudiedDate'>
+      >,
     ) => {
       const safeChapterId = chapterId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
       setSyllabusProgress((prev) => {
@@ -572,7 +824,6 @@ export function useStudyBookStore() {
             : existing?.nextRevisionDate;
         const lastStudied = updates.lastStudiedDate ?? existing?.lastStudiedDate ?? todayIso();
 
-        // Auto-schedule 3-day revision when transitioning to Mastered
         if (updates.status === 'mastered' && existing?.status !== 'mastered') {
           nextStage = 1;
           nextRevDate = addDaysIso(new Date(), 3);
@@ -592,7 +843,7 @@ export function useStudyBookStore() {
           lastStudiedDate: lastStudied,
         };
 
-        if (auth.currentUser && profileCreatedInCloudRef.current) {
+        if (canAutoSyncNow() && auth.currentUser) {
           const uid = auth.currentUser.uid;
           const docPath = `users/${uid}/syllabusProgress/${safeChapterId}`;
           const docRef = doc(db, 'users', uid, 'syllabusProgress', safeChapterId);
@@ -605,10 +856,11 @@ export function useStudyBookStore() {
           if (merged.nextRevisionDate) payloadBase.nextRevisionDate = merged.nextRevisionDate;
           if (merged.lastStudiedDate) payloadBase.lastStudiedDate = merged.lastStudiedDate;
 
+          setSyncStatus('syncing');
           if (remoteDocIdsRef.current.syllabus.has(safeChapterId)) {
-            void updateDoc(docRef, payloadBase).catch((err) =>
-              handleFirestoreError(err, OperationType.UPDATE, docPath),
-            );
+            void updateDoc(docRef, payloadBase)
+              .then(() => markSynced())
+              .catch((err) => handleFirestoreError(err, OperationType.UPDATE, docPath));
           } else {
             remoteDocIdsRef.current.syllabus.add(safeChapterId);
             void setDoc(docRef, {
@@ -618,14 +870,16 @@ export function useStudyBookStore() {
               branch: merged.branch,
               ...payloadBase,
               createdAt: serverTimestamp(),
-            }).catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+            })
+              .then(() => markSynced())
+              .catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
           }
         }
 
         return { ...prev, [safeChapterId]: merged };
       });
     },
-    [],
+    [canAutoSyncNow, markSynced],
   );
 
   // Advance 3 -> 7 -> 21 -> Retained revision queue
@@ -670,7 +924,6 @@ export function useStudyBookStore() {
       };
       setStudyLogs((prev) => [fullLog, ...prev]);
 
-      // Automatically schedule 3-day spaced repetition if a chapter was logged and not yet queued
       if (fullLog.chapterId) {
         const existingProg = syllabusProgress[fullLog.chapterId];
         if (!existingProg || existingProg.revisionStage === 0) {
@@ -688,7 +941,7 @@ export function useStudyBookStore() {
         }
       }
 
-      if (auth.currentUser && profileCreatedInCloudRef.current) {
+      if (canAutoSyncNow() && auth.currentUser) {
         const uid = auth.currentUser.uid;
         const docPath = `users/${uid}/studyLogs/${id}`;
         const payload: Record<string, unknown> = {
@@ -706,122 +959,144 @@ export function useStudyBookStore() {
           createdAt: serverTimestamp(),
         };
         if (fullLog.chapterId) payload.chapterId = fullLog.chapterId.slice(0, 128);
-        void setDoc(doc(db, 'users', uid, 'studyLogs', id), payload).catch((err) =>
-          handleFirestoreError(err, OperationType.CREATE, docPath),
-        );
+        remoteDocIdsRef.current.studyLogs.add(id);
+        setSyncStatus('syncing');
+        void setDoc(doc(db, 'users', uid, 'studyLogs', id), payload)
+          .then(() => markSynced())
+          .catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
       }
     },
-    [syllabusProgress, upsertChapterProgress],
+    [canAutoSyncNow, markSynced, syllabusProgress, upsertChapterProgress],
   );
 
-  const deleteStudyLog = useCallback((logId: string) => {
-    setStudyLogs((prev) => prev.filter((l) => l.id !== logId));
-    if (auth.currentUser) {
-      const uid = auth.currentUser.uid;
-      const docPath = `users/${uid}/studyLogs/${logId}`;
-      void deleteDoc(doc(db, 'users', uid, 'studyLogs', logId)).catch((err) =>
-        handleFirestoreError(err, OperationType.DELETE, docPath),
-      );
-    }
-  }, []);
+  const deleteStudyLog = useCallback(
+    (logId: string) => {
+      setStudyLogs((prev) => prev.filter((l) => l.id !== logId));
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const docPath = `users/${uid}/studyLogs/${logId}`;
+        remoteDocIdsRef.current.studyLogs.delete(logId);
+        void deleteDoc(doc(db, 'users', uid, 'studyLogs', logId))
+          .then(() => markSynced())
+          .catch((err) => handleFirestoreError(err, OperationType.DELETE, docPath));
+      }
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
   // Mock Scores
-  const addMockScore = useCallback((scoreEntry: Omit<MockScore, 'id'>) => {
-    const id = makeSafeId('mock');
-    const clean: MockScore = {
-      ...scoreEntry,
-      id,
-      title: scoreEntry.title.trim().slice(0, 160),
-      maxScore: Math.max(1, Math.min(2000, Number(scoreEntry.maxScore) || 100)),
-      score: Math.max(-500, Math.min(2000, Number(scoreEntry.score) || 0)),
-      accuracy: Math.max(0, Math.min(100, Number(scoreEntry.accuracy) || 0)),
-      correctCount: Math.max(0, Math.round(scoreEntry.correctCount)),
-      wrongCount: Math.max(0, Math.round(scoreEntry.wrongCount)),
-      skippedCount: Math.max(0, Math.round(scoreEntry.skippedCount)),
-      timeTakenMinutes: Math.max(0, Math.min(600, Math.round(scoreEntry.timeTakenMinutes))),
-    };
-    setMockScores((prev) => [clean, ...prev]);
+  const addMockScore = useCallback(
+    (scoreEntry: Omit<MockScore, 'id'>) => {
+      const id = makeSafeId('mock');
+      const clean: MockScore = {
+        ...scoreEntry,
+        id,
+        title: scoreEntry.title.trim().slice(0, 160),
+        maxScore: Math.max(1, Math.min(2000, Number(scoreEntry.maxScore) || 100)),
+        score: Math.max(-500, Math.min(2000, Number(scoreEntry.score) || 0)),
+        accuracy: Math.max(0, Math.min(100, Number(scoreEntry.accuracy) || 0)),
+        correctCount: Math.max(0, Math.round(scoreEntry.correctCount)),
+        wrongCount: Math.max(0, Math.round(scoreEntry.wrongCount)),
+        skippedCount: Math.max(0, Math.round(scoreEntry.skippedCount)),
+        timeTakenMinutes: Math.max(0, Math.min(600, Math.round(scoreEntry.timeTakenMinutes))),
+      };
+      setMockScores((prev) => [clean, ...prev]);
 
-    if (auth.currentUser && profileCreatedInCloudRef.current) {
-      const uid = auth.currentUser.uid;
-      const docPath = `users/${uid}/mockScores/${id}`;
-      void setDoc(doc(db, 'users', uid, 'mockScores', id), {
-        ownerId: uid,
-        title: clean.title,
-        examType: clean.examType,
-        branch: clean.branch,
-        score: clean.score,
-        maxScore: clean.maxScore,
-        accuracy: clean.accuracy,
-        correctCount: clean.correctCount,
-        wrongCount: clean.wrongCount,
-        skippedCount: clean.skippedCount,
-        timeTakenMinutes: clean.timeTakenMinutes,
-        date: clean.date,
-        createdAt: serverTimestamp(),
-      }).catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
-    }
-  }, []);
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const docPath = `users/${uid}/mockScores/${id}`;
+        remoteDocIdsRef.current.mockScores.add(id);
+        setSyncStatus('syncing');
+        void setDoc(doc(db, 'users', uid, 'mockScores', id), {
+          ownerId: uid,
+          title: clean.title,
+          examType: clean.examType,
+          branch: clean.branch,
+          score: clean.score,
+          maxScore: clean.maxScore,
+          accuracy: clean.accuracy,
+          correctCount: clean.correctCount,
+          wrongCount: clean.wrongCount,
+          skippedCount: clean.skippedCount,
+          timeTakenMinutes: clean.timeTakenMinutes,
+          date: clean.date,
+          createdAt: serverTimestamp(),
+        })
+          .then(() => markSynced())
+          .catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+      }
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
-  const deleteMockScore = useCallback((scoreId: string) => {
-    setMockScores((prev) => prev.filter((s) => s.id !== scoreId));
-    if (auth.currentUser) {
-      const uid = auth.currentUser.uid;
-      const docPath = `users/${uid}/mockScores/${scoreId}`;
-      void deleteDoc(doc(db, 'users', uid, 'mockScores', scoreId)).catch((err) =>
-        handleFirestoreError(err, OperationType.DELETE, docPath),
-      );
-    }
-  }, []);
+  const deleteMockScore = useCallback(
+    (scoreId: string) => {
+      setMockScores((prev) => prev.filter((s) => s.id !== scoreId));
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const docPath = `users/${uid}/mockScores/${scoreId}`;
+        remoteDocIdsRef.current.mockScores.delete(scoreId);
+        void deleteDoc(doc(db, 'users', uid, 'mockScores', scoreId))
+          .then(() => markSynced())
+          .catch((err) => handleFirestoreError(err, OperationType.DELETE, docPath));
+      }
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
   // Question Bank & Mistake Book
-  const addQuestionsToBank = useCallback((items: Array<Omit<QuestionItem, 'id' | 'isMistake' | 'wrongCount'>>) => {
-    const created: QuestionItem[] = items.map((item) => ({
-      ...item,
-      id: makeSafeId('q'),
-      subject: item.subject.trim().slice(0, 120) || 'General Engineering',
-      topic: item.topic.trim().slice(0, 160),
-      questionText: item.questionText.trim().slice(0, 1500),
-      options: [
-        String(item.options[0] || 'Option A').slice(0, 500),
-        String(item.options[1] || 'Option B').slice(0, 500),
-        String(item.options[2] || 'Option C').slice(0, 500),
-        String(item.options[3] || 'Option D').slice(0, 500),
-      ],
-      correctIndex: Math.max(0, Math.min(3, Math.round(item.correctIndex))),
-      explanation: item.explanation.trim().slice(0, 2000),
-      sourceName: item.sourceName.trim().slice(0, 160),
-      isMistake: false,
-      wrongCount: 0,
-    }));
+  const addQuestionsToBank = useCallback(
+    (items: Array<Omit<QuestionItem, 'id' | 'isMistake' | 'wrongCount'>>) => {
+      const created: QuestionItem[] = items.map((item) => ({
+        ...item,
+        id: makeSafeId('q'),
+        subject: item.subject.trim().slice(0, 120) || 'General Engineering',
+        topic: item.topic.trim().slice(0, 160),
+        questionText: item.questionText.trim().slice(0, 1500),
+        options: [
+          String(item.options[0] || 'Option A').slice(0, 500),
+          String(item.options[1] || 'Option B').slice(0, 500),
+          String(item.options[2] || 'Option C').slice(0, 500),
+          String(item.options[3] || 'Option D').slice(0, 500),
+        ],
+        correctIndex: Math.max(0, Math.min(3, Math.round(item.correctIndex))),
+        explanation: item.explanation.trim().slice(0, 2000),
+        sourceName: item.sourceName.trim().slice(0, 160),
+        isMistake: false,
+        wrongCount: 0,
+      }));
 
-    setQuestionBank((prev) => [...created, ...prev]);
+      setQuestionBank((prev) => [...created, ...prev]);
 
-    if (auth.currentUser && profileCreatedInCloudRef.current) {
-      const uid = auth.currentUser.uid;
-      for (const q of created) {
-        const docPath = `users/${uid}/questionBank/${q.id}`;
-        remoteDocIdsRef.current.questions.add(q.id);
-        void setDoc(doc(db, 'users', uid, 'questionBank', q.id), {
-          ownerId: uid,
-          subject: q.subject,
-          topic: q.topic,
-          examType: q.examType,
-          branch: q.branch,
-          questionText: q.questionText,
-          options: q.options,
-          correctIndex: q.correctIndex,
-          explanation: q.explanation,
-          sourceName: q.sourceName,
-          isMistake: false,
-          wrongCount: 0,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }).catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        setSyncStatus('syncing');
+        const writes = created.map((q) => {
+          const docPath = `users/${uid}/questionBank/${q.id}`;
+          remoteDocIdsRef.current.questions.add(q.id);
+          return setDoc(doc(db, 'users', uid, 'questionBank', q.id), {
+            ownerId: uid,
+            subject: q.subject,
+            topic: q.topic,
+            examType: q.examType,
+            branch: q.branch,
+            questionText: q.questionText,
+            options: q.options,
+            correctIndex: q.correctIndex,
+            explanation: q.explanation,
+            sourceName: q.sourceName,
+            isMistake: false,
+            wrongCount: 0,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }).catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+        });
+        void Promise.allSettled(writes).then(() => markSynced());
       }
-    }
-    return created.length;
-  }, []);
+      return created.length;
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
   const updateQuestionMistakeState = useCallback(
     (questionId: string, isMistake: boolean, lastWrongChoice?: number) => {
@@ -836,10 +1111,11 @@ export function useStudyBookStore() {
             wrongCount: nextWrongCount,
           };
 
-          if (auth.currentUser && profileCreatedInCloudRef.current) {
+          if (canAutoSyncNow() && auth.currentUser) {
             const uid = auth.currentUser.uid;
             const docPath = `users/${uid}/questionBank/${q.id}`;
             const docRef = doc(db, 'users', uid, 'questionBank', q.id);
+            setSyncStatus('syncing');
             if (remoteDocIdsRef.current.questions.has(q.id)) {
               const patch: Record<string, unknown> = {
                 isMistake,
@@ -849,9 +1125,9 @@ export function useStudyBookStore() {
               if (typeof lastWrongChoice === 'number') {
                 patch.lastWrongChoice = lastWrongChoice;
               }
-              void updateDoc(docRef, patch).catch((err) =>
-                handleFirestoreError(err, OperationType.UPDATE, docPath),
-              );
+              void updateDoc(docRef, patch)
+                .then(() => markSynced())
+                .catch((err) => handleFirestoreError(err, OperationType.UPDATE, docPath));
             } else {
               remoteDocIdsRef.current.questions.add(q.id);
               const fullDoc: Record<string, unknown> = {
@@ -873,9 +1149,9 @@ export function useStudyBookStore() {
               if (typeof updated.lastWrongChoice === 'number') {
                 fullDoc.lastWrongChoice = updated.lastWrongChoice;
               }
-              void setDoc(docRef, fullDoc).catch((err) =>
-                handleFirestoreError(err, OperationType.CREATE, docPath),
-              );
+              void setDoc(docRef, fullDoc)
+                .then(() => markSynced())
+                .catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
             }
           }
 
@@ -883,108 +1159,91 @@ export function useStudyBookStore() {
         }),
       );
     },
-    [],
+    [canAutoSyncNow, markSynced],
   );
 
-  const deleteQuestion = useCallback((questionId: string) => {
-    setQuestionBank((prev) => prev.filter((q) => q.id !== questionId));
-    if (auth.currentUser) {
-      const uid = auth.currentUser.uid;
-      const docPath = `users/${uid}/questionBank/${questionId}`;
-      remoteDocIdsRef.current.questions.delete(questionId);
-      void deleteDoc(doc(db, 'users', uid, 'questionBank', questionId)).catch((err) =>
-        handleFirestoreError(err, OperationType.DELETE, docPath),
-      );
-    }
-  }, []);
+  const deleteQuestion = useCallback(
+    (questionId: string) => {
+      setQuestionBank((prev) => prev.filter((q) => q.id !== questionId));
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const docPath = `users/${uid}/questionBank/${questionId}`;
+        remoteDocIdsRef.current.questions.delete(questionId);
+        void deleteDoc(doc(db, 'users', uid, 'questionBank', questionId))
+          .then(() => markSynced())
+          .catch((err) => handleFirestoreError(err, OperationType.DELETE, docPath));
+      }
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
   // Chapter Visual Notes & Q&A
-  const saveChapterNote = useCallback((note: ChapterNote) => {
-    const safeId = note.chapterId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
-    const cleaned: ChapterNote = {
-      ...note,
-      chapterId: safeId,
-      subjectId: note.subjectId.slice(0, 128),
-      chapterTitle: note.chapterTitle.slice(0, 200),
-      tldr: note.tldr.slice(0, 2000),
-      plainNotes: note.plainNotes.slice(0, 20000),
-      conceptCards: note.conceptCards.slice(0, 30),
-      diagrams: note.diagrams.slice(0, 12),
-      comparisonTables: note.comparisonTables.slice(0, 10),
-      qaHistory: note.qaHistory.slice(0, 40),
-      updatedAtIso: new Date().toISOString(),
-    };
+  const saveChapterNote = useCallback(
+    (note: ChapterNote) => {
+      const safeId = note.chapterId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+      const cleaned: ChapterNote = {
+        ...note,
+        chapterId: safeId,
+        subjectId: note.subjectId.slice(0, 128),
+        chapterTitle: note.chapterTitle.slice(0, 200),
+        tldr: note.tldr.slice(0, 2000),
+        plainNotes: note.plainNotes.slice(0, 20000),
+        conceptCards: note.conceptCards.slice(0, 30),
+        diagrams: note.diagrams.slice(0, 12),
+        comparisonTables: note.comparisonTables.slice(0, 10),
+        qaHistory: note.qaHistory.slice(0, 40),
+        updatedAtIso: new Date().toISOString(),
+      };
 
-    setChapterNotes((prev) => ({ ...prev, [safeId]: cleaned }));
+      setChapterNotes((prev) => ({ ...prev, [safeId]: cleaned }));
 
-    if (auth.currentUser && profileCreatedInCloudRef.current) {
-      const uid = auth.currentUser.uid;
-      const docPath = `users/${uid}/chapterNotes/${safeId}`;
-      const docRef = doc(db, 'users', uid, 'chapterNotes', safeId);
+      if (canAutoSyncNow() && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const docPath = `users/${uid}/chapterNotes/${safeId}`;
+        const docRef = doc(db, 'users', uid, 'chapterNotes', safeId);
+        setSyncStatus('syncing');
 
-      if (remoteDocIdsRef.current.notes.has(safeId)) {
-        void updateDoc(docRef, {
-          tldr: cleaned.tldr,
-          plainNotes: cleaned.plainNotes,
-          conceptCards: cleaned.conceptCards,
-          diagrams: cleaned.diagrams,
-          comparisonTables: cleaned.comparisonTables,
-          qaHistory: cleaned.qaHistory,
-          updatedAt: serverTimestamp(),
-        }).catch((err) => handleFirestoreError(err, OperationType.UPDATE, docPath));
-      } else {
-        remoteDocIdsRef.current.notes.add(safeId);
-        void setDoc(docRef, {
-          ownerId: uid,
-          subjectId: cleaned.subjectId,
-          chapterId: cleaned.chapterId,
-          chapterTitle: cleaned.chapterTitle,
-          branch: cleaned.branch,
-          tldr: cleaned.tldr,
-          plainNotes: cleaned.plainNotes,
-          conceptCards: cleaned.conceptCards,
-          diagrams: cleaned.diagrams,
-          comparisonTables: cleaned.comparisonTables,
-          qaHistory: cleaned.qaHistory,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }).catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+        if (remoteDocIdsRef.current.notes.has(safeId)) {
+          void updateDoc(docRef, {
+            tldr: cleaned.tldr,
+            plainNotes: cleaned.plainNotes,
+            conceptCards: cleaned.conceptCards,
+            diagrams: cleaned.diagrams,
+            comparisonTables: cleaned.comparisonTables,
+            qaHistory: cleaned.qaHistory,
+            updatedAt: serverTimestamp(),
+          })
+            .then(() => markSynced())
+            .catch((err) => handleFirestoreError(err, OperationType.UPDATE, docPath));
+        } else {
+          remoteDocIdsRef.current.notes.add(safeId);
+          void setDoc(docRef, {
+            ownerId: uid,
+            subjectId: cleaned.subjectId,
+            chapterId: cleaned.chapterId,
+            chapterTitle: cleaned.chapterTitle,
+            branch: cleaned.branch,
+            tldr: cleaned.tldr,
+            plainNotes: cleaned.plainNotes,
+            conceptCards: cleaned.conceptCards,
+            diagrams: cleaned.diagrams,
+            comparisonTables: cleaned.comparisonTables,
+            qaHistory: cleaned.qaHistory,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+            .then(() => markSynced())
+            .catch((err) => handleFirestoreError(err, OperationType.CREATE, docPath));
+        }
       }
-    }
-  }, []);
-
-  // Push local state up to cloud on demand
-  const pushAllToCloud = useCallback(async () => {
-    if (!auth.currentUser) return;
-    const uid = auth.currentUser.uid;
-    setSyncStatus('syncing');
-    const ok = await ensureCloudProfile(uid, profile);
-    if (!ok) return;
-
-    try {
-      await updateDoc(doc(db, 'users', uid), {
-        aspirantName: (profile.aspirantName || 'Aspirant').trim().slice(0, 80) || 'Aspirant',
-        branch: profile.branch,
-        targetExam: profile.targetExam,
-        theme: profile.theme,
-        font: profile.font,
-        glassBlur: profile.glassBlur,
-        dailyGoals: profile.dailyGoals.slice(0, 25),
-        updatedAt: serverTimestamp(),
-      });
-      setSyncStatus('synced');
-      setSyncMessage('All devices synced.');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
-      setSyncStatus('error');
-      setSyncMessage('Manual sync failed.');
-    }
-  }, [ensureCloudProfile, profile]);
+    },
+    [canAutoSyncNow, markSynced],
+  );
 
   // Full JSON Backup Export & Restore
   const exportBackupJson = useCallback((): string => {
     const backup: StudyBookBackup = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       profile,
       syllabusProgress,
@@ -1006,6 +1265,10 @@ export function useStudyBookStore() {
         const restoredProfile: UserProfile = {
           ...DEFAULT_PROFILE,
           ...parsed.profile,
+          font: normalizeFont(parsed.profile.font),
+          wallpaper: normalizeWallpaper(parsed.profile.wallpaper),
+          autoSync:
+            typeof parsed.profile.autoSync === 'boolean' ? parsed.profile.autoSync : true,
           dailyGoals: Array.isArray(parsed.profile.dailyGoals)
             ? parsed.profile.dailyGoals.slice(0, 25)
             : DEFAULT_DAILY_GOALS,
@@ -1035,6 +1298,7 @@ export function useStudyBookStore() {
     authReady,
     syncStatus,
     syncMessage,
+    lastSyncedAt,
     signInWithGoogle,
     signOutCloud,
     pushAllToCloud,

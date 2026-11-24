@@ -2,11 +2,13 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   BookOpen,
+  FileText,
   FileUp,
   Loader2,
   MessageSquare,
   Send,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { findChapterMeta, getSubjectsForContext } from '../data/syllabusData';
 import { parseUploadedFiles } from '../lib/pdfParser';
@@ -69,8 +71,10 @@ export const NotesTab: React.FC<NotesTabProps> = ({
 
   // PDF / Screenshot Converter State
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [rawLectureText, setRawLectureText] = useState('');
   const [converting, setConverting] = useState(false);
+  const [convertStatus, setConvertStatus] = useState('');
   const [convertError, setConvertError] = useState('');
   const [showConverterPanel, setShowConverterPanel] = useState(false);
 
@@ -79,22 +83,56 @@ export const NotesTab: React.FC<NotesTabProps> = ({
   const [solvingDoubt, setSolvingDoubt] = useState(false);
   const [doubtError, setDoubtError] = useState('');
 
-  const handleConvertLecture = async (files?: FileList | null) => {
+  const handleFilesSelected = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
     setConvertError('');
+    const incoming = Array.from(fileList).slice(0, 6);
+    setSelectedFiles((prev) => [...prev, ...incoming].slice(0, 6));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleConvertLecture = async (directFiles?: File[] | null) => {
+    setConvertError('');
+    const filesToUse = directFiles && directFiles.length > 0 ? directFiles : selectedFiles;
+    const pasted = rawLectureText.trim();
+
+    if (filesToUse.length === 0 && !pasted) {
+      setConvertError('Upload a live class PDF, board screenshot, or paste lecture notes first.');
+      return;
+    }
+
     setConverting(true);
+    setConvertStatus(
+      filesToUse.length > 0
+        ? 'Reading PDF / board images (supports scanned slides)...'
+        : 'Synthesizing structured visual notes...',
+    );
+
     try {
-      let textContent = rawLectureText.trim();
+      let textContent = pasted;
       let images: { mimeType: string; data: string }[] = [];
 
-      if (files && files.length > 0) {
-        const parsed = await parseUploadedFiles(files);
+      if (filesToUse.length > 0) {
+        const parsed = await parseUploadedFiles(filesToUse);
         textContent = [parsed.textContent, textContent].filter(Boolean).join('\n\n');
         images = parsed.images;
+        if (parsed.usedVisionPdf) {
+          setConvertStatus('Scanned slide PDF detected — analyzing pages directly with Gemini 4 Flash...');
+        } else {
+          setConvertStatus('Filtering promo slides & generating concept cards + SVG diagrams...');
+        }
       }
 
       if (!textContent && images.length === 0) {
-        setConvertError('Upload a live class PDF, board screenshot, or paste lecture notes first.');
+        setConvertError(
+          'Could not read any content from the uploaded file. Please try another PDF, screenshot, or paste text.',
+        );
         setConverting(false);
+        setConvertStatus('');
         return;
       }
 
@@ -141,12 +179,14 @@ export const NotesTab: React.FC<NotesTabProps> = ({
           : activeNote.plainNotes,
       });
 
+      setSelectedFiles([]);
       setRawLectureText('');
       setShowConverterPanel(false);
     } catch (err) {
       setConvertError(err instanceof Error ? err.message : 'Lecture conversion failed.');
     } finally {
       setConverting(false);
+      setConvertStatus('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -275,34 +315,71 @@ export const NotesTab: React.FC<NotesTabProps> = ({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,image/*"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  void handleConvertLecture(e.target.files);
-                }
-              }}
+              accept=".pdf,application/pdf,image/*,.txt"
+              onChange={(e) => handleFilesSelected(e.target.files)}
               className="hidden"
             />
-            <button
-              type="button"
-              disabled={converting}
-              onClick={() => fileInputRef.current?.click()}
-              className="min-h-[44px] inline-flex items-center gap-2 px-5 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
-            >
-              {converting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Synthesizing Visual Notes &amp; SVG Diagrams...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Upload Class PDF or Board Photo</span>
-                </>
-              )}
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              <button
+                type="button"
+                disabled={converting}
+                onClick={() => fileInputRef.current?.click()}
+                className="min-h-[44px] inline-flex items-center gap-2 px-5 rounded-2xl border border-black/15 dark:border-white/20 bg-black/[0.04] dark:bg-white/[0.06] text-zinc-900 dark:text-zinc-100 text-xs font-semibold hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
+              >
+                <FileUp className="w-4 h-4" />
+                <span>{selectedFiles.length > 0 ? 'Add More Files' : 'Choose Class PDF or Board Photo'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={converting || (selectedFiles.length === 0 && !rawLectureText.trim())}
+                onClick={() => void handleConvertLecture(null)}
+                className="min-h-[44px] inline-flex items-center gap-2 px-5 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 text-xs font-semibold hover:opacity-90 disabled:opacity-40"
+              >
+                {converting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Synthesizing Visual Notes...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Generate Visual Notes &amp; SVGs</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {selectedFiles.length > 0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                {selectedFiles.map((file, idx) => (
+                  <div
+                    key={`${file.name}-${idx}`}
+                    className="inline-flex items-center gap-2 rounded-xl bg-black/[0.05] dark:bg-white/[0.08] border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs text-zinc-800 dark:text-zinc-200"
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                    <span className="max-w-[180px] truncate font-medium">{file.name}</span>
+                    <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {(file.size / (1024 * 1024) >= 1
+                        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+                        : `${Math.max(1, Math.round(file.size / 1024))} KB`)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(idx)}
+                      aria-label={`Remove ${file.name}`}
+                      className="text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-50"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-              Powered by Gemini 3 Flash + PDF.js · Target chapter: {activeNote.chapterTitle}
+              {convertStatus ||
+                `Powered by Gemini 4 Flash (supports scanned smartboard PDFs & photos) · Target: ${activeNote.chapterTitle}`}
             </p>
           </div>
 
@@ -311,19 +388,9 @@ export const NotesTab: React.FC<NotesTabProps> = ({
               rows={3}
               value={rawLectureText}
               onChange={(e) => setRawLectureText(e.target.value)}
-              placeholder="Or paste raw lecture transcript / class text here to generate visual cards & SVG diagrams..."
+              placeholder="Optional: paste raw lecture notes or extra instructions alongside your PDF/screenshot..."
               className="w-full rounded-2xl bg-black/[0.04] dark:bg-white/[0.06] border border-black/10 dark:border-white/10 p-3.5 text-sm text-zinc-900 dark:text-zinc-100"
             />
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={converting || !rawLectureText.trim()}
-                onClick={() => void handleConvertLecture(null)}
-                className="min-h-[40px] px-4 rounded-2xl border border-black/15 dark:border-white/20 text-xs font-semibold text-zinc-900 dark:text-zinc-100 disabled:opacity-40"
-              >
-                Convert Pasted Lecture
-              </button>
-            </div>
           </div>
 
           {convertError && (

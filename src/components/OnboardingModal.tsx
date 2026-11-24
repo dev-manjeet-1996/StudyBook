@@ -89,6 +89,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 Mechanical
               </button>
             </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              Once selected, your engineering stream is locked and cannot be changed.
+            </p>
           </div>
 
           <div className="space-y-1.5">

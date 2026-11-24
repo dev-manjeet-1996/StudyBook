@@ -30,9 +30,16 @@
         },
         "font": {
           "type": "string",
-          "enum": ["jakarta", "manrope", "dm"]
+          "enum": ["google_sans", "play", "jakarta", "manrope", "dm"]
         },
         "glassBlur": {
+          "type": "boolean"
+        },
+        "wallpaper": {
+          "type": "string",
+          "enum": ["waves", "concrete", "peaks", "prism", "none"]
+        },
+        "autoSync": {
           "type": "boolean"
         },
         "dailyGoals": {

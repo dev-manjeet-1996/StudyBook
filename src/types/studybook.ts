@@ -3,7 +3,8 @@ export type ContentBranch = 'civil' | 'mechanical' | 'nontech';
 export type TargetExam = 'combo' | 'ssc_je' | 'rrb_je';
 export type ExamPattern = 'ssc_je' | 'rrb_je';
 export type ThemeMode = 'day' | 'night';
-export type FontFamily = 'jakarta' | 'manrope' | 'dm';
+export type FontFamily = 'google_sans' | 'play' | 'jakarta' | 'manrope' | 'dm';
+export type WallpaperId = 'waves' | 'concrete' | 'peaks' | 'prism' | 'none';
 export type AppTab = 'home' | 'syllabus' | 'mocks' | 'notes';
 export type ChapterStatus = 'not_started' | 'revising' | 'mastered';
 export type ActivityType = 'Concept Study' | 'PYQ Practice' | 'Revision' | 'Mock Analysis' | 'Formula Drill';
@@ -21,6 +22,8 @@ export interface UserProfile {
   theme: ThemeMode;
   font: FontFamily;
   glassBlur: boolean;
+  wallpaper: WallpaperId;
+  autoSync: boolean;
   dailyGoals: DailyGoal[];
 }
 

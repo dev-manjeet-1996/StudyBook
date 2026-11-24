@@ -2,15 +2,10 @@ import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
-  Calculator,
   ChevronRight,
   Search,
 } from 'lucide-react';
-import {
-  ALPHABET_REFERENCE_TABLE,
-  getSubjectsForContext,
-  REASONING_NUMBER_TABLE,
-} from '../data/syllabusData';
+import { getSubjectsForContext } from '../data/syllabusData';
 import type {
   ChapterProgress,
   ChapterStatus,
@@ -50,8 +45,6 @@ export const SyllabusTab: React.FC<SyllabusTabProps> = ({
 }) => {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showReasoningRef, setShowReasoningRef] = useState(false);
-  const [refSubTab, setRefSubTab] = useState<'numbers' | 'alphabets'>('numbers');
 
   const allSubjects = useMemo(
     () => getSubjectsForContext(profile.branch, profile.targetExam),
@@ -74,112 +67,6 @@ export const SyllabusTab: React.FC<SyllabusTabProps> = ({
   const activeSubject = useMemo(
     () => allSubjects.find((s) => s.id === selectedSubjectId) || null,
     [allSubjects, selectedSubjectId],
-  );
-
-  // Built-in Reasoning Quick-Reference View
-  const renderReasoningTables = () => (
-    <div className="sb-surface rounded-3xl p-6 space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Reasoning Quick-Reference Tables
-          </h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            1–30 Squares, Cubes, Roots &amp; Alphabet Place Values / Opposite Pairs
-          </p>
-        </div>
-
-        <div className="flex items-center gap-1 p-1 rounded-2xl bg-black/[0.05] dark:bg-white/[0.07]">
-          <button
-            type="button"
-            onClick={() => setRefSubTab('numbers')}
-            className={`min-h-[36px] px-3.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${
-              refSubTab === 'numbers'
-                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 shadow-sm'
-                : 'text-zinc-600 dark:text-zinc-400'
-            }`}
-          >
-            1–30 Powers &amp; Roots
-          </button>
-          <button
-            type="button"
-            onClick={() => setRefSubTab('alphabets')}
-            className={`min-h-[36px] px-3.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${
-              refSubTab === 'alphabets'
-                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 shadow-sm'
-                : 'text-zinc-600 dark:text-zinc-400'
-            }`}
-          >
-            Alphabet &amp; Opposites
-          </button>
-        </div>
-      </div>
-
-      {refSubTab === 'numbers' ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-black/10 dark:border-white/10 text-xs text-zinc-500 dark:text-zinc-400">
-                <th className="py-2.5 px-3 font-medium">N</th>
-                <th className="py-2.5 px-3 font-medium text-right">N² (Square)</th>
-                <th className="py-2.5 px-3 font-medium text-right">N³ (Cube)</th>
-                <th className="py-2.5 px-3 font-medium text-right">√N</th>
-                <th className="py-2.5 px-3 font-medium text-right">∛N</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-black/[0.05] dark:divide-white/[0.06] font-mono text-xs sm:text-sm tabular-nums">
-              {REASONING_NUMBER_TABLE.map((row) => (
-                <tr
-                  key={row.n}
-                  className="hover:bg-black/[0.025] dark:hover:bg-white/[0.03] transition-colors"
-                >
-                  <td className="py-2 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
-                    {row.n}
-                  </td>
-                  <td className="py-2 px-3 text-right text-zinc-800 dark:text-zinc-200">
-                    {row.square}
-                  </td>
-                  <td className="py-2 px-3 text-right text-zinc-800 dark:text-zinc-200">
-                    {row.cube.toLocaleString('en-IN')}
-                  </td>
-                  <td className="py-2 px-3 text-right text-zinc-600 dark:text-zinc-400">
-                    {row.sqrt}
-                  </td>
-                  <td className="py-2 px-3 text-right text-zinc-600 dark:text-zinc-400">
-                    {row.cbrt}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] text-xs text-zinc-700 dark:text-zinc-300 font-mono">
-            Anchor Rule (EJOTY): E=5 · J=10 · O=15 · T=20 · Y=25 &nbsp;|&nbsp; Opposite Sum = 27
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-2">
-            {ALPHABET_REFERENCE_TABLE.map((row) => (
-              <div
-                key={row.letter}
-                className="rounded-2xl border border-black/[0.08] dark:border-white/[0.08] p-2.5 text-center space-y-0.5"
-              >
-                <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 tabular-nums">
-                  <span>{row.forward}</span>
-                  <span>{row.reverse}</span>
-                </div>
-                <div className="text-lg font-bold font-mono text-zinc-950 dark:text-zinc-50">
-                  {row.letter} ↔ {row.opposite}
-                </div>
-                <div className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
-                  {row.pairMnemonic}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   );
 
   // Subject Drill-Down Page
@@ -303,9 +190,6 @@ export const SyllabusTab: React.FC<SyllabusTabProps> = ({
             );
           })}
         </section>
-
-        {/* Automatically display Reasoning Tables inside General Intelligence & Reasoning */}
-        {activeSubject.id === 'nt_reasoning' && renderReasoningTables()}
       </div>
     );
   }
@@ -353,19 +237,6 @@ export const SyllabusTab: React.FC<SyllabusTabProps> = ({
                 </button>
               ))}
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowReasoningRef((v) => !v)}
-              className={`min-h-[44px] inline-flex items-center gap-1.5 px-3.5 rounded-2xl border text-xs font-medium whitespace-nowrap transition-all ${
-                showReasoningRef
-                  ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-100 dark:text-zinc-950 dark:border-zinc-100'
-                  : 'border-black/10 dark:border-white/15 text-zinc-800 dark:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/5'
-              }`}
-            >
-              <Calculator className="w-3.5 h-3.5" />
-              <span>Reasoning Tables</span>
-            </button>
           </div>
         </div>
 
@@ -381,8 +252,6 @@ export const SyllabusTab: React.FC<SyllabusTabProps> = ({
           />
         </div>
       </section>
-
-      {showReasoningRef && renderReasoningTables()}
 
       {/* Subject Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -1,19 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="112" fill="#111113"/>
-  <g stroke="#F5F5F7" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
-    <!-- Left notebook page -->
-    <path d="M256 156C222 136 168 130 116 140C106 142 100 150 100 160V346C100 356 108 364 118 362C170 352 222 358 256 378"/>
-    <!-- Right notebook page -->
-    <path d="M256 156C290 136 344 130 396 140C406 142 412 150 412 160V346C412 356 404 364 394 362C342 352 290 358 256 378"/>
-    <!-- Center spine -->
-    <path d="M256 156V378"/>
-    <!-- Subtle ruled lines on left page -->
-    <path d="M144 206H212" stroke-width="14" stroke-opacity="0.55"/>
-    <path d="M144 252H212" stroke-width="14" stroke-opacity="0.55"/>
-    <path d="M144 298H192" stroke-width="14" stroke-opacity="0.55"/>
-    <!-- Fountain pen nib angled cleanly across right page -->
-    <path d="M358 184L306 236L290 302L356 286L408 234L358 184Z" fill="#111113"/>
-    <path d="M290 302L334 258"/>
-    <circle cx="342" cy="250" r="9" fill="#F5F5F7" stroke="none"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#09090B" />
+  <rect x="5.5" y="5.5" width="53" height="53" rx="13" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="1.25" />
+  <path d="M32 13L49 23.5V41.5L32 51L15 41.5V23.5L32 13Z" stroke="#FAFAFA" stroke-width="2.6" stroke-linejoin="round" />
+  <path d="M32 13V51" stroke="#FAFAFA" stroke-width="2.4" stroke-linecap="round" />
+  <path d="M15 23.5L32 33L49 23.5" stroke="#FAFAFA" stroke-width="2.4" stroke-linejoin="round" />
+  <path d="M21 33.5L27 37M21 39L27 42.5" stroke="#FAFAFA" stroke-opacity="0.65" stroke-width="2" stroke-linecap="round" />
+  <path d="M43 33.5L37 37M43 39L37 42.5" stroke="#FAFAFA" stroke-opacity="0.65" stroke-width="2" stroke-linecap="round" />
+  <circle cx="32" cy="22.5" r="2.3" fill="#FAFAFA" />
 </svg>

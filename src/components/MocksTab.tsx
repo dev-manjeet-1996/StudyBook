@@ -647,7 +647,7 @@ export const MocksTab: React.FC<MocksTabProps> = ({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.html,.htm,image/*"
+              accept=".pdf,application/pdf,.html,.htm,image/*"
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0) {
                   void runExtraction(e.target.files);
@@ -664,7 +664,7 @@ export const MocksTab: React.FC<MocksTabProps> = ({
               {extracting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Extracting with Gemini 3 Flash...</span>
+                  <span>Extracting with Gemini 4 Flash...</span>
                 </>
               ) : (
                 <span>Select File &amp; Extract</span>

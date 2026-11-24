@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
-const MODEL_NAME = 'gemini-3-flash-preview';
+const MODEL_NAME = 'gemini-4-hydrogen';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -89,7 +89,7 @@ function parseJsonSafe<T>(text: string | undefined, fallback: T): T {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '45mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', model: MODEL_NAME });
@@ -115,12 +115,19 @@ async function startServer() {
       const trimmedText = typeof textContent === 'string' ? textContent.slice(0, 90000) : '';
       const validImages = Array.isArray(images)
         ? images
-            .filter((img) => img && typeof img.data === 'string' && typeof img.mimeType === 'string')
+            .filter(
+              (img) =>
+                img &&
+                typeof img.data === 'string' &&
+                img.data.length > 0 &&
+                typeof img.mimeType === 'string' &&
+                (img.mimeType.startsWith('image/') || img.mimeType === 'application/pdf'),
+            )
             .slice(0, 6)
         : [];
 
       if (!trimmedText.trim() && validImages.length === 0) {
-        return res.status(400).json({ error: 'Provide extracted text or at least one image to parse questions.' });
+        return res.status(400).json({ error: 'Provide extracted text, a PDF, or at least one image to parse questions.' });
       }
 
       const ai = getGeminiClient();
@@ -244,7 +251,14 @@ ${trimmedText}`,
       const trimmedText = typeof textContent === 'string' ? textContent.slice(0, 100000) : '';
       const validImages = Array.isArray(images)
         ? images
-            .filter((img) => img && typeof img.data === 'string' && typeof img.mimeType === 'string')
+            .filter(
+              (img) =>
+                img &&
+                typeof img.data === 'string' &&
+                img.data.length > 0 &&
+                typeof img.mimeType === 'string' &&
+                (img.mimeType.startsWith('image/') || img.mimeType === 'application/pdf'),
+            )
             .slice(0, 6)
         : [];
 
@@ -481,10 +495,119 @@ Respond clearly in structured plain text with:
     }
   });
 
+  // 4. Multi-Turn StudyBook AI Mentor Chatbot (Streaming SSE via ai.chats)
+  app.post('/api/ai/chat', async (req: Request, res: Response) => {
+    try {
+      const {
+        history = [],
+        message = '',
+        persona = 'mentor',
+        context = {},
+      } = req.body as {
+        history?: Array<{ role: 'user' | 'model'; text: string }>;
+        message?: string;
+        persona?: 'mentor' | 'formula' | 'coach';
+        context?: {
+          aspirantName?: string;
+          branch?: string;
+          targetExam?: string;
+          masteryPercent?: number;
+          mistakeCount?: number;
+        };
+      };
+
+      const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+      if (!trimmedMessage) {
+        return res.status(400).json({ error: 'Message cannot be empty.' });
+      }
+
+      const branchLabel = context.branch === 'mechanical' ? 'Mechanical Engineering' : 'Civil Engineering';
+      const examLabel =
+        context.targetExam === 'ssc_je'
+          ? 'SSC JE 2026'
+          : context.targetExam === 'rrb_je'
+            ? 'RRB JE 2026'
+            : 'Combo: RRB JE + SSC JE 2026';
+      const aspirant = (context.aspirantName || 'Aspirant').slice(0, 60);
+      const mastery = Number.isFinite(context.masteryPercent) ? context.masteryPercent : 0;
+      const mistakes = Number.isFinite(context.mistakeCount) ? context.mistakeCount : 0;
+
+      let selectedModel = 'gemini-4-hydrogen';
+      let roleDirective = '';
+
+      if (persona === 'formula') {
+        selectedModel = 'gemini-3.1-flash-lite';
+        roleDirective = `You are StudyBook's Quick Formula & IS Code Assistant for Indian Engineering Exams (${branchLabel}, ${examLabel}).
+Respond rapidly and concisely with exact formulas, SI units, Indian Standard code clauses (IS 456:2000, IS 800:2007, IS 10262, IS 2720, standard thermodynamic/fluid tables), and short memory mnemonics. Keep answers crisp, structured, and directly exam-usable.`;
+      } else if (persona === 'coach') {
+        selectedModel = 'gemini-4-hydrogen';
+        roleDirective = `You are StudyBook's CBT Mock Strategy & Mistake Coach for ${aspirant} preparing for ${examLabel} (${branchLabel}).
+Current profile snapshot: Syllabus Mastery ${mastery}%, Mistake Book items: ${mistakes}.
+Specialize in TCS iON CBT time allocation, accuracy vs. attempt optimization under negative marking (-0.25 for SSC JE, -0.33 for RRB JE), eliminating silly numerical errors, and converting weak chapters into guaranteed marks. Be practical, structured, and concise.`;
+      } else {
+        selectedModel = 'gemini-4-hydrogen';
+        roleDirective = `You are StudyBook's Senior Engineering Faculty Mentor for ${aspirant} preparing for ${examLabel} (${branchLabel}).
+Current profile snapshot: Syllabus Mastery ${mastery}%, Mistake Book items: ${mistakes}.
+Explain core engineering concepts, solve numericals step-by-step with clear units, cite Indian Standard codes where relevant, and give structured revision plans tailored to SSC JE and RRB JE syllabi. Keep formatting clean, scannable, and free of fluff.`;
+      }
+
+      const sanitizedHistory = Array.isArray(history)
+        ? history
+            .filter(
+              (turn) =>
+                turn &&
+                (turn.role === 'user' || turn.role === 'model') &&
+                typeof turn.text === 'string' &&
+                turn.text.trim().length > 0,
+            )
+            .slice(-24)
+            .map((turn) => ({
+              role: turn.role,
+              parts: [{ text: turn.text.slice(0, 8000) }],
+            }))
+        : [];
+
+      const ai = getGeminiClient();
+      const chat = ai.chats.create({
+        model: selectedModel,
+        history: sanitizedHistory,
+        config: {
+          systemInstruction: roleDirective,
+        },
+      });
+
+      const streamResponse = await callWithExponentialBackoff(() =>
+        chat.sendMessageStream({ message: trimmedMessage.slice(0, 6000) }),
+      );
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      for await (const chunk of streamResponse) {
+        const textChunk = chunk.text;
+        if (textChunk) {
+          res.write(`data: ${JSON.stringify({ chunk: textChunk })}\n\n`);
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true, model: selectedModel })}\n\n`);
+      return res.end();
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : 'Chat response failed.';
+      console.error('[chat] error:', errMessage);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ error: errMessage })}\n\n`);
+        return res.end();
+      }
+      return res.status(500).json({ error: errMessage });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
